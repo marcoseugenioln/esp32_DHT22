@@ -33,6 +33,10 @@ String HUM_URL;
 String TEMP_URL;
 String uniqueAPName;
 
+// Variáveis para armazenar os últimos valores enviados
+int lastSentHumidity = -1;
+int lastSentTemperature = -100;
+
 // Retry control variables
 int retryCount = 0;
 const int maxRetries = 3;
@@ -183,6 +187,8 @@ void setupWebServer() {
                   "<strong>AP Access:</strong> http://" + WiFi.softAPIP().toString() + "<br>"
                   "<strong>Humidity ID:</strong> " + String(config.humidity_id) + "<br>"
                   "<strong>Temperature ID:</strong> " + String(config.temperature_id) + "<br>"
+                  "<strong>Last Sent Humidity:</strong> " + String(lastSentHumidity) + "%<br>"
+                  "<strong>Last Sent Temperature:</strong> " + String(lastSentTemperature) + "°C<br>"
                   "</div>"
                   
                   "<h3>⚙️ Configuration</h3>"
@@ -302,14 +308,40 @@ String readAndSendSensorData() {
   result += "Humidity: " + String(h) + "%\n";
   result += "Temperature: " + String(t) + "°C\n";
   
+  // Verificar se os valores mudaram
+  bool humidityChanged = (h != lastSentHumidity);
+  bool temperatureChanged = (t != lastSentTemperature);
+  
   if (WiFi.status() == WL_CONNECTED) {
-    bool humSuccess = sendSensorData(HUM_URL, String(h));
-    delay(1000);
-    bool tempSuccess = sendSensorData(TEMP_URL, String(t));
+    bool humSuccess = false;
+    bool tempSuccess = false;
     
-    result += "\n=== Server Response ===\n";
-    result += "Humidity data " + String(humSuccess ? "sent successfully" : "failed") + "\n";
-    result += "Temperature data " + String(tempSuccess ? "sent successfully" : "failed") + "\n";
+    // Enviar apenas se os valores mudaram
+    if (humidityChanged) {
+      humSuccess = sendSensorData(HUM_URL, String(h));
+      if (humSuccess) {
+        lastSentHumidity = h;
+        result += "Humidity data sent successfully (value changed)\n";
+      } else {
+        result += "Humidity data failed to send\n";
+      }
+    } else {
+      result += "Humidity unchanged (" + String(h) + "%) - not sent\n";
+    }
+    
+    delay(1000);
+    
+    if (temperatureChanged) {
+      tempSuccess = sendSensorData(TEMP_URL, String(t));
+      if (tempSuccess) {
+        lastSentTemperature = t;
+        result += "Temperature data sent successfully (value changed)\n";
+      } else {
+        result += "Temperature data failed to send\n";
+      }
+    } else {
+      result += "Temperature unchanged (" + String(t) + "°C) - not sent\n";
+    }
   } else {
     result += "\nWiFi not connected - data not sent to server\n";
   }
@@ -339,18 +371,17 @@ bool sendSensorData(const String& url, const String& value) {
 }
 
 void loop() {
-  server.handleClient();  // Always handle web requests
-  checkWiFiConnection();  // Check WiFi status periodically
+  server.handleClient();
+  checkWiFiConnection();
   
   // Normal sensor reading operation
   if ((millis() - lastTime) > timerDelay && WiFi.status() == WL_CONNECTED) {
     readAndSendSensorData();
     lastTime = millis();
-    
-    Serial.print("Next reading in ");
-    Serial.print(timerDelay / 1000);
-    Serial.println(" seconds");
   }
 
-  delay(10);
+  // Em vez de delay fixo, usar yield() para dar tempo a outras tasks
+  yield();
+  // Ou um delay mínimo
+  delay(1);
 }
